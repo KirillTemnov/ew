@@ -9,7 +9,9 @@
 
 -behaviour(gen_server).
 
--define(TCP_OPTIONS,  {reuseaddr, true}, {active, false}, {backlog,30}).
+%% default TCP options
+-define(TCP_OPTIONS,  {packet, http}, {reuseaddr, true}, {active, false}, {backlog,30}).
+
 
 %%--------------------------------------------------------------------
 %% Include files

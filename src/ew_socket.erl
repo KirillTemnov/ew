@@ -27,11 +27,13 @@
 %%--------------------------------------------------------------------
 %% Macros
 %%--------------------------------------------------------------------
+%% maximum idle timeout
+-define(MAX_IDLE_TIMEOUT, 1000*10). %% 10 seconds
 
 %%--------------------------------------------------------------------
 %% Records
 %%--------------------------------------------------------------------
--record(connection, {socket, port}).
+-record(connection, {socket, port, peer_addr, peer_port}).
 
 -record(request, {connection=keep_alive,	        % keep_alive | close
 	      content_length,                   % Integer
@@ -57,7 +59,7 @@ start_link(LPid, LSocket, LPort) ->
 init({LPid, LSocket, LPort}) ->
     case catch gen_tcp:accept(LSocket) of
 	{ok, Socket} ->
-	    % {ok, {Addr, Port}} = inet:peername(Socket),
+
 	    % io:fwrite("Address ~p Port ~p~n", [Addr, Port]),
 	    io:fwrite("Module = ~p~n", [?MODULE]),
 	    % io:fwrite("Accept socket HERE ~p~n", [Socket]),
@@ -68,8 +70,9 @@ init({LPid, LSocket, LPort}) ->
             %        port = ListenPort,
             %        peer_addr = Addr,
             %        peer_port = Port},
-	    Con = #connection{socket=Socket, port=LPort},
-	    get_request(Socket, [], 2); %% Jump to state 'request'
+	    {ok, {Addr, Port}} = inet:peername(Socket),
+	    Con = #connection{socket=Socket, port=LPort, peer_addr=Addr, peer_port=Port},
+	    get_request(Socket, Con, [], LPort); %% Jump to state 'request'
 	Error ->
 	    io:fwrite("Exit on error ~p~n", [Error]),
 	    exit({error, accept_failed})
@@ -89,19 +92,22 @@ init({LPid, LSocket, LPort}) ->
 % wait_connect(ListenSocket, Count) ->
 %     {ok, Socket} = gen_tcp:accept(ListenSocket), spawn(?MODULE, wait_connect, [ListenSocket, Count+1]), get_request(Socket, [], Count).
 
-get_request(Socket, BinaryList, Count) ->
+get_request(Socket, Connection, BinaryList, Port) ->
     io:fwrite("Get request~n", [ ]),
     case gen_tcp:recv(Socket, 0, 10000) of
-	{ok, Binary} -> get_request(Socket, [Binary|BinaryList], Count);
+	{ok, Binary} -> get_request(Socket, Connection, [Binary|BinaryList], Port);
 	{error, closed} ->
-	    handle(lists:reverse(BinaryList), Count);
+	    handle(lists:reverse(BinaryList), Connection, Port);
 	{error, timeout} ->
 	    io:fwrite("Close request by timeout~n", [ ]),
-	    handle(lists:reverse(BinaryList), Count)
+	    handle(lists:reverse(BinaryList), Connection, Port)
     end.
 
 
-handle(Binary, Count) ->
-    {ok, Fd} = file:open("log_file_"++integer_to_list(Count), write),
+handle(Binary, Connection, Port) ->
+    {ok, Fd} = file:open("log_file_"++integer_to_list(Port), [append]),
+    file:write(Fd, io_lib:format("Connection:  ~p:~p~n",
+				 [Connection#connection.peer_addr,
+				  Connection#connection.peer_port])),
     file:write(Fd, Binary),
     file:close(Fd).
