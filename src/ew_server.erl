@@ -17,11 +17,12 @@
 
 %%--------------------------------------------------------------------
 %% External exports
--export([start_link/1]).
+-compile(export_all). 
+% -export([start_link/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-	 code_change/3, shutdown/1, create/2]).
+	 code_change/3, create/2]).
 
 -record(state, {listen_socket, port, acceptor}).
 
@@ -46,10 +47,13 @@ create(ServerPid, Pid) ->
     io:fwrite("Before create!", [ ]),
     gen_server:cast(ServerPid, {create, Pid}).
 
-shutdown(Port) ->
-    Name = list_to_atom(lists:flatten(io_lib:format("ew_~p", [Port]))),
-    io:fwrite("terminate ...~n", [ ]),
-    gen_server:cast({local, Name},terminate).
+stop(ServerPid) ->
+    io:fwrite("stop here~n", [ ]),
+    gen_server:cast(ServerPid, stop).
+
+echo(ServerPid) ->
+    io:fwrite("Echoo..... ~n", [ ]),
+    gen_server:call(ServerPid, echo).
 
 %%--------------------------------------------------------------------
 %% Function: init/1
@@ -60,14 +64,14 @@ shutdown(Port) ->
 %%          {stop, Reason}
 %%--------------------------------------------------------------------
 init([Port]) ->
-    process_flag(trap_exit, true),
+%%    process_flag(trap_exit, true),
     io:fwrite("Gen server init~n", [ ]),
     case gen_tcp:listen(Port, [binary, ?TCP_OPTIONS]) of
 	{ok, LSocket} ->
 	    %% create accepting process
 	    Pid = ew_socket:start_link(self(), LSocket, Port),
 	    io:fwrite("Create accepting process: (~p | ~p)~n", [LSocket, Port]),
-	    {ok, #state{listen_socket = LSocket, port = Port, acceptor = pid}};
+	    {ok, #state{listen_socket = LSocket, port = Port, acceptor = Pid}};
 	{error, Reason} ->
 	    {stop, Reason}
     end.
@@ -82,7 +86,14 @@ init([Port]) ->
 %%          {stop, Reason, Reply, State}   | (terminate/2 is called)
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
+handle_call(echo, From,  _State)->
+    io:fwrite("Echo...", [ ]),
+    {reply, ok, _State};
+
+
+
 handle_call(Request, From, State) ->
+    io:fwrite("Handle call: ~p~n", [Request]),
     Reply = ok,
     {reply, Reply, State}.
 
@@ -99,11 +110,12 @@ handle_cast({create, _Pid}, #state{listen_socket = LSocket} = State) ->
     io:fwrite("Create new socket with pid = ~p~n", [New_pid]),
     {noreply, State#state{acceptor=New_pid}};
 
-handle_cast(terminate, State) ->
-    {noreply, terminate(ok, State)};
-
+handle_cast(stop, State) ->
+    io:fwrite("terminate in hangle cast ...~n", [ ]),
+    {stop, normal, State};
 
 handle_cast(Msg, State) ->
+    io:fwrite("Get message: ~p~n", [Msg]),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -113,6 +125,15 @@ handle_cast(Msg, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
+handle_info({'EXIT', Pid, normal}, #state{acceptor=Pid} = State) ->
+    {noreply, State};
+
+%% The current acceptor has died, wait a little and try again
+handle_info({'EXIT', Pid, _Abnormal}, #state{acceptor=Pid} = State) ->
+    timer:sleep(1000),
+    ew_socket:start_link(self(), State#state.listen_socket, State#state.port),
+    {noreply, State};
+
 handle_info(Info, State) ->
     {noreply, State}.
 
