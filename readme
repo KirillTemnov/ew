@@ -1,0 +1,9 @@
+ew - erlang web proxy server.
+
+ew pronounced "eve". 
+
+This progect inspired by http://www.trapexit.org/A_fast_web_server_demonstrating_some_undocumented_Erlang_features.
+
+Main purpose of ew project - create reverse proxy server with dynamic variable routes and control of the maximum load.   
+
+This code relesed under BSD license.
