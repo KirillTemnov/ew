@@ -1,18 +1,13 @@
 %%%-------------------------------------------------------------------
-%%% File    : ew_server.erl
+%%% File    : ew_mgr.erl
 %%% Author  : selead <allselead@gmail.com>
-%%% Description : 
+%%% Description : This module is a manager for handle proxy connections.
 %%%
-%%% Created : 12 Jul 2010 by selead <allselead@gmail.com>
+%%% Created : 13 Jul 2010 by selead <allselead@gmail.com>
 %%%-------------------------------------------------------------------
--module(ew_server).
+-module(ew_mgr).
 
 -behaviour(gen_server).
-
-%% default TCP options
--define(TCP_OPTIONS,  {packet, http}, {reuseaddr, true}, {active, false}, {backlog,30}).
-
-
 %%--------------------------------------------------------------------
 %% Include files
 %%--------------------------------------------------------------------
@@ -20,13 +15,17 @@
 %%--------------------------------------------------------------------
 %% External exports
 -compile(export_all).
-% -export([start_link/1]).
+-export([start_link/0]).
 
 %% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2,
-	 code_change/3, create/2]).
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {listen_socket, port, acceptor}).
+-record(web_route, {host,                     	% Requested Host, List (Host header)
+		    port,			% Requested Port, Integer (usually 80)
+		    proxy_host, 		% Proxy host, List -- real hostname or IP
+		    proxy_port,  		% Proxy host port, Integer
+		    requests_per_second=1000}).	% Reques per seconds rate
+-record(state, {routing}).
 
 %%====================================================================
 %% External functions
@@ -35,27 +34,37 @@
 %% Function: start_link/0
 %% Description: Starts the server
 %%--------------------------------------------------------------------
-start_link(Port) when is_integer(Port) ->
-    Name = list_to_atom(lists:flatten(io_lib:format("ew_~p", [Port]))),
-    io:fwrite("GS start link~n", [ ]),
-    gen_server:start_link({local, Name}, ?MODULE, [Port], []).
+start_link() ->
+    gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
 
 %%====================================================================
 %% Server functions
 %%====================================================================
 
-%% create new acceptor
-create(ServerPid, Pid) ->
-    io:fwrite("Before create!", [ ]),
-    gen_server:cast(ServerPid, {create, Pid}).
+stop() ->
+    gen_server:cast({global, ?MODULE}, stop).
 
-stop(ServerPid) ->
-    io:fwrite("stop here~n", [ ]),
-    gen_server:cast(ServerPid, stop).
+%% add new route
+%% sample
+%%  ew_mgr:add_route(#web_route{host="localhost", port=80, proxy_host="google.com", proxy_port=80}).
+add_route(Route) ->
+    gen_server:call({global, ?MODULE}, {add_route, Route}).
 
-echo(ServerPid) ->
-    io:fwrite("Echoo..... ~n", [ ]),
-    gen_server:call(ServerPid, echo).
+%% remove route
+remove_route(Route) ->
+    gen_server:call({global, ?MODULE}, {remove_route, Route}).
+
+%% return list of routes
+list_routes() ->
+    gen_server:call({global, ?MODULE}, list_routes).
+
+%% get list of routes filtered by host and port
+list_routes(Host) ->
+    list_routes(Host, 80).
+
+list_routes(Host, Port) when is_integer(Port) ->
+    gen_server:call({global, ?MODULE}, {list_routes, Host, Port}).
+
 
 %%--------------------------------------------------------------------
 %% Function: init/1
@@ -65,18 +74,9 @@ echo(ServerPid) ->
 %%          ignore               |
 %%          {stop, Reason}
 %%--------------------------------------------------------------------
-init([Port]) ->
-%%    process_flag(trap_exit, true),
-    io:fwrite("Gen server init~n", [ ]),
-    case gen_tcp:listen(Port, [binary, ?TCP_OPTIONS]) of
-	{ok, LSocket} ->
-	    %% create accepting process
-	    Pid = ew_socket:start_link(self(), LSocket, Port),
-	    io:fwrite("Create accepting process: (~p | ~p)~n", [LSocket, Port]),
-	    {ok, #state{listen_socket = LSocket, port = Port, acceptor = Pid}};
-	{error, Reason} ->
-	    {stop, Reason}
-    end.
+init([]) ->
+    process_flag(trap_exit, true),
+    {ok, dict:new()}.
 
 %%--------------------------------------------------------------------
 %% Function: handle_call/3
@@ -88,14 +88,23 @@ init([Port]) ->
 %%          {stop, Reason, Reply, State}   | (terminate/2 is called)
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
-handle_call(echo, From,  _State)->
-    io:fwrite("Echo...", [ ]),
-    {reply, ok, _State};
+handle_call({add_route, Route}, From, State) ->
+    NewState = dict:store(get_route_name(Route), Route, State),
+    {reply, ok, NewState};
 
+handle_call(list_routes, From, State) ->
+    {reply, dict:to_list(State), State};
 
+handle_call({remove_route, Route}, From, State) ->
+    {reply, ok, dict:erase(get_route_name(Route), State)};
+
+handle_call({list_routes, Host, Port}, From, State) ->
+    FilteredDict =  dict:filter(
+		      fun(Key, #web_route{host=THost, port=TPort} = Value) ->
+			      Host =:= THost andalso Port =:= TPort end, State),
+    {reply, dict:to_list(FilteredDict), State};
 
 handle_call(Request, From, State) ->
-    io:fwrite("Handle call: ~p~n", [Request]),
     Reply = ok,
     {reply, Reply, State}.
 
@@ -106,18 +115,11 @@ handle_call(Request, From, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
-%% Called by gen_server framework when the cast message from create/2 is received
-handle_cast({create, _Pid}, #state{listen_socket = LSocket} = State) ->
-    New_pid = ew_socket:start_link(self(), LSocket, State#state.port),
-    io:fwrite("Create new socket with pid = ~p~n", [New_pid]),
-    {noreply, State#state{acceptor=New_pid}};
-
 handle_cast(stop, State) ->
-    io:fwrite("terminate in hangle cast ...~n", [ ]),
+    io:fwrite("Terminate ~p ..... ok~n", [?MODULE]),
     {stop, normal, State};
 
 handle_cast(Msg, State) ->
-    io:fwrite("Get message: ~p~n", [Msg]),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -127,15 +129,6 @@ handle_cast(Msg, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
-handle_info({'EXIT', Pid, normal}, #state{acceptor=Pid} = State) ->
-    {noreply, State};
-
-%% The current acceptor has died, wait a little and try again
-handle_info({'EXIT', Pid, _Abnormal}, #state{acceptor=Pid} = State) ->
-    timer:sleep(1000),
-    ew_socket:start_link(self(), State#state.listen_socket, State#state.port),
-    {noreply, State};
-
 handle_info(Info, State) ->
     {noreply, State}.
 
@@ -145,9 +138,7 @@ handle_info(Info, State) ->
 %% Returns: any (ignored by gen_server)
 %%--------------------------------------------------------------------
 terminate(Reason, State) ->
-    gen_tcp:close(State#state.listen_socket),
     ok.
-
 
 %%--------------------------------------------------------------------
 %% Func: code_change/3
@@ -160,3 +151,6 @@ code_change(OldVsn, State, Extra) ->
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
+
+get_route_name(#web_route{host=Host, port=Port, proxy_host=PHost, proxy_port=PPort} = Route) ->
+    lists:flatten(io_lib:format("~p : ~p -> ~p : ~p ", [Host, Port, PHost, PPort])).
