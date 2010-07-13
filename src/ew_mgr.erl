@@ -41,24 +41,47 @@ start_link() ->
 %% Server functions
 %%====================================================================
 
+%%--------------------------------------------------------------------
+%% Function: stop/0
+%% Description: Shutdown server.
+%%--------------------------------------------------------------------
 stop() ->
     gen_server:cast({global, ?MODULE}, stop).
 
-%% add new route
-%% sample
+%%--------------------------------------------------------------------
+%% Function: add_route/1
+%% Description: Add new route to manager
+%%
+%% Example:
 %%  ew_mgr:add_route(#web_route{host="localhost", port=80, proxy_host="google.com", proxy_port=80}).
+%%--------------------------------------------------------------------
 add_route(Route) ->
     gen_server:call({global, ?MODULE}, {add_route, Route}).
 
 %% remove route
+%%--------------------------------------------------------------------
+%% Function: remove_route/1
+%% Description: Remove route from manager.
+%%
+%% Example:
+%%  ew_mgr:remove_route(#web_route{host="localhost", port=80, proxy_host="google.com", proxy_port=80}).
+%%--------------------------------------------------------------------
 remove_route(Route) ->
     gen_server:call({global, ?MODULE}, {remove_route, Route}).
 
-%% return list of routes
+%%--------------------------------------------------------------------
+%% Function: list_routes/0
+%% Description: Get list of all routes.
+%%--------------------------------------------------------------------
 list_routes() ->
     gen_server:call({global, ?MODULE}, list_routes).
 
 %% get list of routes filtered by host and port
+
+%%--------------------------------------------------------------------
+%% Function: list_routes/1 , list_routes/2
+%% Description: Filter list of routes by host and port (default 80)
+%%--------------------------------------------------------------------
 list_routes(Host) ->
     list_routes(Host, 80).
 
@@ -152,5 +175,10 @@ code_change(OldVsn, State, Extra) ->
 %%% Internal functions
 %%--------------------------------------------------------------------
 
+%%--------------------------------------------------------------------
+%% Function: get_route_name/1
+%% Description: Get string name of route by concatenating host, port
+%%              proxy_host and proxy_port.
+%%--------------------------------------------------------------------
 get_route_name(#web_route{host=Host, port=Port, proxy_host=PHost, proxy_port=PPort} = Route) ->
     lists:flatten(io_lib:format("~p : ~p -> ~p : ~p ", [Host, Port, PHost, PPort])).
