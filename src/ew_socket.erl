@@ -209,14 +209,16 @@ handle_post(Connection, #request{connection=ConnState, host=Host} = Request) ->
     send(Connection, ?FORBIDDEN),
     close.
 
-call_mfa(Host0, Path, Args, Connection, Request) ->
+call_mfa(Host0, Path, Args, #connection{socket=Socket}=Connection, Request) ->
     {Host, Port} = ew_util:get_host_and_port(Host0),
     io:fwrite("Host = ~p   Port = ~p ~n", [Host, Port]),
     ListRoutes = ew_mgr:list_routes(Host, Port),
     io:fwrite("Get list of routes: ~p~n", [ListRoutes]),
     case ListRoutes of
-	[] -> 
-	    send(Connection, ?NOT_FOUND);
+	[] ->
+	    io:fwrite("Close connection : not found", [ ]),
+	    ok = send_to_socket(Socket, ?NOT_FOUND),
+	    ok = gen_tcp:close(Socket);
 	[{_, WebRoute}] ->
 	    get_proxy_page(WebRoute, Path, Args, Connection, Request);
 	_ ->
@@ -257,26 +259,26 @@ get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, 
 	    Data = [First_line, enc_headers(Request#request.headers), <<"\r\n">>,
 		    Request#request.body],
 %%	    io:fwrite("Send to socket~n~p~n", [Data]),
-	    dump_to_file("log_send_to_socket", Data),
+%%	    dump_to_file("log_send_to_socket", Data),
 	    inet:setopts(Socket, [{packet, http}, {active, false}]),
 	    send_to_socket(Socket, Data),
 	    io:fwrite("Before getting request~n", [ ]),
 	    ReturnedData = get_proxy_request(Socket, Data),
 	    io:fwrite("After getting request~n", [ ]),
-	    dump_to_file("log_get_from_socket", ReturnedData),
+%%	    dump_to_file("log_get_from_socket", ReturnedData),
 %%	    io:fwrite("Get data: ~n~p~n", [ReturnedData]),
-	    inet:setopts(ClientSocket, [{packet, raw}, {active, false}]),
+%% 	    inet:setopts(ClientSocket, [{packet, http}, {active, false}]),
 	    send_to_socket(ClientSocket, ReturnedData);
 	{error, _} ->
 	    error
     end.
 
-get_proxy_request(Socket, BinaryList) ->
-    inet:setopts(Socket, [{packet, raw}]),
-    case gen_tcp:recv(Socket, 0, 5000) of
-	{ok, Binary} -> get_proxy_request(Socket, [Binary|BinaryList]);
-	{error, closed} -> lists:reverse(BinaryList)
-    end.
+% get_proxy_request(Socket, BinaryList) ->
+%     inet:setopts(Socket, [{packet, raw}]),
+%     case gen_tcp:recv(Socket, 0, 5000) of
+% 	{ok, Binary} -> get_proxy_request(Socket, [Binary|BinaryList]);
+% 	{error, closed} -> lists:reverse(BinaryList)
+%     end.
 
 enc_headers([]) ->
     [];
