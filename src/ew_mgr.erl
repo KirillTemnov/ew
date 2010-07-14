@@ -11,7 +11,7 @@
 %%--------------------------------------------------------------------
 %% Include files
 %%--------------------------------------------------------------------
-
+-include ("ew_mgr.hrl").
 %%--------------------------------------------------------------------
 %% External exports
 -compile(export_all).
@@ -20,11 +20,6 @@
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(web_route, {host,                     	% Requested Host, List (Host header)
-		    port,			% Requested Port, Integer (usually 80)
-		    proxy_host, 		% Proxy host, List -- real hostname or IP
-		    proxy_port,  		% Proxy host port, Integer
-		    requests_per_second=1000}).	% Reques per seconds rate
 -record(state, {routing}).
 
 %%====================================================================

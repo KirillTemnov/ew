@@ -11,7 +11,7 @@
 %%--------------------------------------------------------------------
 %% Include files
 %%--------------------------------------------------------------------
-
+-include ("ew_mgr.hrl").
 %%--------------------------------------------------------------------
 %% External exports
 %%--------------------------------------------------------------------
@@ -184,11 +184,11 @@ get_body(#connection{socket=Socket} = Connection, Request) ->
 handle_get(Connection, #request{connection=ConnState, host=Host} = Request) ->
     case Request#request.uri of
 	{abs_path, FullPath} ->
-	    {Path, Args} = split_get_params(FullPath, []),
+	    {Path, Args} = ew_util:split_string(FullPath, $?),
 	    call_mfa(Host,  Path, Args, Connection, Request),
 	    ConnState;
 	{absoluteURI, http, _Host, _, FullPath} ->
-	    {Path, Args} = split_get_params(FullPath, []),
+	    {Path, Args} = ew_util:split_string(FullPath, $?),
 	    call_mfa(Host,  Path, Args, Connection, Request),
 	    ConnState;
 	{absoluteURI, _Other_method, _Host, _, FullPath} ->
@@ -209,26 +209,74 @@ handle_post(Connection, #request{connection=ConnState, host=Host} = Request) ->
     send(Connection, ?FORBIDDEN),
     close.
 
-call_mfa(Host, Path, Args, Connection, Request) ->
-    Body =  list_to_binary(io_lib:format("<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">
-<html>
-<head>
-  <title>ew test page</title>
-</head>
-<body>
-  <h2>Host: ~p </h2>
-  <h2>Path: ~p </h2>
-  <h2>Args: ~p </h2>
-</body>
-</html>", [Host, Path, Args])),
-    Headers = add_content_length([], Body),
-    Enc_headers = enc_headers(Headers),
-    Resp = [<<"HTTP/1.1 200 OK\r\n">>,
-	    Enc_headers,
-	    <<"\r\n">>,
-	    Body],
-    send(Connection, Resp).
+call_mfa(Host0, Path, Args, Connection, Request) ->
+    {Host, Port} = ew_util:get_host_and_port(Host0),
+    io:fwrite("Host = ~p   Port = ~p ~n", [Host, Port]),
+    ListRoutes = ew_mgr:list_routes(Host, Port),
+    io:fwrite("Get list of routes: ~p~n", [ListRoutes]),
+    case ListRoutes of
+	[] -> 
+	    send(Connection, ?NOT_FOUND);
+	[{_, WebRoute}] ->
+	    get_proxy_page(WebRoute, Path, Args, Connection, Request);
+	_ ->
+	    io:fwrite("Error in call mfa!", [ ])
+    end.
+%     Body =  list_to_binary(io_lib:format("<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">
+% <html>
+% <head>
+%   <title>ew test page</title>
+% </head>
+% <body>
+%   <h2>Host: ~p </h2>
+%   <h2>Path: ~p </h2>
+%   <h2>Args: ~p </h2>
+% </body>
+% </html>", [Host0, Path, Args])),
+%     Headers = add_content_length([], Body),
+%     Enc_headers = enc_headers(Headers),
+%     Resp = [<<"HTTP/1.1 200 OK\r\n">>,
+% 	    Enc_headers,
+% 	    <<"\r\n">>,
+% 	    Body],
+%     send(Connection, Resp).
 
+get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, Args, #connection{socket=ClientSocket}, Request) ->
+    case gen_tcp:connect(PHost, PPort, [binary, {packet, raw}]) of
+	{ok, Socket} ->
+	    {Maj, Min} = Request#request.vsn,
+	    Uri = Path ++ case Args of
+			      [] ->
+				  [];
+			      _ ->
+				  [$? | Args]
+			  end,
+	    First_line = list_to_binary(io_lib:format("~s ~s HTTP/~p.~p\r\n",
+						      [Request#request.method,
+						       Uri, Maj, Min])),
+	    Data = [First_line, enc_headers(Request#request.headers), <<"\r\n">>,
+		    Request#request.body],
+%%	    io:fwrite("Send to socket~n~p~n", [Data]),
+	    dump_to_file("log_send_to_socket", Data),
+	    inet:setopts(Socket, [{packet, http}, {active, false}]),
+	    send_to_socket(Socket, Data),
+	    io:fwrite("Before getting request~n", [ ]),
+	    ReturnedData = get_proxy_request(Socket, Data),
+	    io:fwrite("After getting request~n", [ ]),
+	    dump_to_file("log_get_from_socket", ReturnedData),
+%%	    io:fwrite("Get data: ~n~p~n", [ReturnedData]),
+	    inet:setopts(ClientSocket, [{packet, raw}, {active, false}]),
+	    send_to_socket(ClientSocket, ReturnedData);
+	{error, _} ->
+	    error
+    end.
+
+get_proxy_request(Socket, BinaryList) ->
+    inet:setopts(Socket, [{packet, raw}]),
+    case gen_tcp:recv(Socket, 0, 5000) of
+	{ok, Binary} -> get_proxy_request(Socket, [Binary|BinaryList]);
+	{error, closed} -> lists:reverse(BinaryList)
+    end.
 
 enc_headers([]) ->
     [];
@@ -256,21 +304,22 @@ add_content_length(Headers, Body) ->
     end.
 
 
-%% cut off string after first question char ("?")
-split_get_params([], Acc) ->
-    {lists:reverse(Acc), []};
-split_get_params([$?|String], Acc) ->
-    {lists:reverse(Acc), String};
-split_get_params([Char|String], Acc) ->
-    split_get_params(String, [Char|Acc]).
 
 
 %% send data to the socket
 send(#connection{socket=Socket}, Data) ->
+    send_to_socket(Socket, Data).
+
+send_to_socket(Socket, Data) ->
     case gen_tcp:send(Socket, Data) of
 	ok -> ok;
 	_  -> exit(normal)
     end.
+
+dump_to_file(Filename, Data) ->
+    {ok, Fd} = file:open(Filename, [write]),
+    file:write(Fd, Data),
+    file:close(Fd).
 
 handle(Binary, Connection, Port) ->
     {ok, Fd} = file:open("log_file_"++integer_to_list(Port), [append]),
