@@ -64,14 +64,13 @@ add_route(Route) ->
 remove_route(Route) ->
     gen_server:call({global, ?MODULE}, {remove_route, Route}).
 
+
 %%--------------------------------------------------------------------
 %% Function: list_routes/0
 %% Description: Get list of all routes.
 %%--------------------------------------------------------------------
 list_routes() ->
     gen_server:call({global, ?MODULE}, list_routes).
-
-%% get list of routes filtered by host and port
 
 %%--------------------------------------------------------------------
 %% Function: list_routes/1 , list_routes/2
@@ -82,6 +81,32 @@ list_routes(Host) ->
 
 list_routes(Host, Port) when is_integer(Port) ->
     gen_server:call({global, ?MODULE}, {list_routes, Host, Port}).
+
+%%--------------------------------------------------------------------
+%% Function: request_to_route/1
+%% Description: Function should be called on each new request passing
+%%              through the route.
+%% Returns: ok | error
+%%--------------------------------------------------------------------
+request_to_route(#web_route{first_request_date=FirstDate}=Route) when FirstDate == [] ->
+    request_to_route(Route#web_route{first_request_date=calendar:now_to_datetime(erlang:now())});
+
+request_to_route(#web_route{requests=Requests, requests_total=RequestsTotal}=Route) ->
+    {_, NowSeconds, _} = erlang:now(),
+    case Route#web_route.now_seconds of
+	NowSeconds ->				% same second request
+	    case Route#web_route.requests > Route#web_route.rps_max of
+		true ->
+		    io:fwrite("ROUTE OVERFLOW (~p)~n, must create more routes!~n", [Route]),
+		    error;
+		_ ->				% make a normal request
+		    gen_server:call({global, ?MODULE}, {increment_route_request, Route}),
+		    ok
+	    end;
+	_ ->
+	    gen_server:call({global, ?MODULE}, {update_route, Route, NowSeconds}),
+	    ok
+    end.
 
 
 %%--------------------------------------------------------------------
@@ -110,6 +135,20 @@ handle_call({add_route, Route}, From, State) ->
     NewState = dict:store(get_route_name(Route), Route, State),
     {reply, ok, NewState};
 
+handle_call({increment_route_request, #web_route{requests=Requests}=Route}, From, State) ->
+    NewState = dict:store(get_route_name(Route), Route#web_route{requests=Requests+1}, State),
+    io:fwrite("Inc request [~p]~n", [Requests+1]),
+    {reply, ok, NewState};
+
+handle_call({update_route,  #web_route{requests=Requests, requests_total=RequestsTotal}=Route, NewSeconds}, From, State) ->
+    R = Route#web_route{now_seconds=NewSeconds,
+			requests_total=Requests + RequestsTotal, requests=0},
+    NewState = dict:store(get_route_name(Route),
+			  R,
+			  State),
+    io:fwrite("Update request [~p]~n", [R]),
+    {reply, ok, NewState};
+
 handle_call(list_routes, From, State) ->
     {reply, dict:to_list(State), State};
 
@@ -133,6 +172,8 @@ handle_call(Request, From, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
+
+
 handle_cast(stop, State) ->
     io:fwrite("Terminate ~p ..... ok~n", [?MODULE]),
     {stop, normal, State};
@@ -177,3 +218,13 @@ code_change(OldVsn, State, Extra) ->
 %%--------------------------------------------------------------------
 get_route_name(#web_route{host=Host, port=Port, proxy_host=PHost, proxy_port=PPort} = Route) ->
     lists:flatten(io_lib:format("~p : ~p -> ~p : ~p ", [Host, Port, PHost, PPort])).
+
+
+%%--------------------------------------------------------------------
+%% Function: update_route/1
+%% Description: Update an existing route (change stat info)
+%%--------------------------------------------------------------------
+update_route(Route) ->
+    gen_server:call({global, ?MODULE}, {update_route, Route}).
+
+
