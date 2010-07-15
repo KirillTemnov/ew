@@ -74,8 +74,9 @@ init({LPid, LSocket, LPort}) ->
 	    io:fwrite("Get new request~n", [ ]),
 	    get_request(Con, #request{}); %% Jump to state 'request'
 	Error ->
-	    io:fwrite("Exit on error ~p~n", [Error]),
-	    exit({error, accept_failed})
+	    io:fwrite("Exit on error XX ~p~n", [Error]),
+%%	    exit({error, accept_failed})
+	    {error, accept_failed}
     end.
 
 
@@ -265,12 +266,19 @@ get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, 
 	    inet:setopts(Socket, [{packet, http}, {active, false}]),
 	    send_to_socket(Socket, Data),
 %%	    io:fwrite("Before getting request~n", [ ]),
-	    ReturnedData = get_proxy_request(Socket, Data),
-%%	    io:fwrite("After getting request~n", [ ]),
-%%	    dump_to_file("log_get_from_socket", ReturnedData),
-%%	    io:fwrite("Get data: ~n~p~n", [ReturnedData]),
-	    inet:setopts(ClientSocket, [{packet, raw}, {active, false}]),
-	    send_to_socket(ClientSocket, ReturnedData);
+	    case get_proxy_request(Socket, Data) of
+		{error, timeout} ->
+		    io:fwrite("Close proxy request by timeout~n", [ ]),
+		    gen_tcp:close(Socket),
+		    gen_tcp:close(ClientSocket),
+		    error;
+		ReturnedData ->
+		    %%	    io:fwrite("After getting request~n", [ ]),
+		    %%	    dump_to_file("log_get_from_socket", ReturnedData),
+		    %%	    io:fwrite("Get data: ~n~p~n", [ReturnedData]),
+		    inet:setopts(ClientSocket, [{packet, raw}, {active, false}]),
+		    send_to_socket(ClientSocket, ReturnedData)
+	    end;
 	{error, _} ->
 	    error
     end.
@@ -278,8 +286,12 @@ get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, 
 get_proxy_request(Socket, BinaryList) ->
     inet:setopts(Socket, [{packet, raw}]),
     case gen_tcp:recv(Socket, 0, 5000) of
-	{ok, Binary} -> get_proxy_request(Socket, [Binary|BinaryList]);
-	{error, closed} -> lists:reverse(BinaryList)
+	{ok, Binary} ->
+	    get_proxy_request(Socket, [Binary|BinaryList]);
+	{error, closed} ->
+	    lists:reverse(BinaryList);
+	{error, timeout} ->
+	    {error, timeout}
     end.
 
 enc_headers([]) ->

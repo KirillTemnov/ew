@@ -135,18 +135,16 @@ handle_call({add_route, Route}, From, State) ->
     NewState = dict:store(get_route_name(Route), Route, State),
     {reply, ok, NewState};
 
-handle_call({increment_route_request, #web_route{requests=Requests}=Route}, From, State) ->
-    NewState = dict:store(get_route_name(Route), Route#web_route{requests=Requests+1}, State),
-    io:fwrite("Inc request [~p]~n", [Requests+1]),
+handle_call({increment_route_request, #web_route{requests=Requests, requests_total=RequestsTotal}=Route}, From, State) ->
+    NewState = dict:store(get_route_name(Route), Route#web_route{requests=Requests+1, requests_total=RequestsTotal+1}, State),
+%%    io:fwrite("Inc request [~p]~n", [Requests+1]),
     {reply, ok, NewState};
 
-handle_call({update_route,  #web_route{requests=Requests, requests_total=RequestsTotal}=Route, NewSeconds}, From, State) ->
-    R = Route#web_route{now_seconds=NewSeconds,
-			requests_total=Requests + RequestsTotal, requests=0},
+handle_call({update_route,  #web_route{requests_total=RequestsTotal}=Route, NewSeconds}, From, State) ->
     NewState = dict:store(get_route_name(Route),
-			  R,
+			  Route#web_route{now_seconds=NewSeconds, requests_total=RequestsTotal+1, requests=0},
 			  State),
-    io:fwrite("Update request [~p]~n", [R]),
+%%    io:fwrite("Update request [~p]~n", [R]),
     {reply, ok, NewState};
 
 handle_call(list_routes, From, State) ->
@@ -188,6 +186,13 @@ handle_cast(Msg, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
+handle_info({'EXIT', Pid, normal}, State) ->
+    {noreply, State};
+
+handle_info({'EXIT', Pid, Abnormal}, State) ->
+    io:fwrite("catch 'EXIT' with message: ~p~n", [Abnormal]),
+    {noreply, State};
+
 handle_info(Info, State) ->
     {noreply, State}.
 

@@ -71,9 +71,14 @@ init([Port]) ->
     case gen_tcp:listen(Port, [binary, ?TCP_OPTIONS]) of
 	{ok, LSocket} ->
 	    %% create accepting process
-	    Pid = ew_socket:start_link(self(), LSocket, Port),
-	    io:fwrite("Create accepting process: (~p | ~p)~n", [LSocket, Port]),
-	    {ok, #state{listen_socket = LSocket, port = Port, acceptor = Pid}};
+	    case ew_socket:start_link(self(), LSocket, Port) of
+		{error, accept_failed} ->
+		    io:fwrite("message : {error, accept_failed}", [ ]),
+		    {stop, socket_error};
+		Pid ->
+		    io:fwrite("Create accepting process: (~p | ~p)~n", [LSocket, Port]),
+		    {ok, #state{listen_socket = LSocket, port = Port, acceptor = Pid}}
+	    end;
 	{error, Reason} ->
 	    {stop, Reason}
     end.
