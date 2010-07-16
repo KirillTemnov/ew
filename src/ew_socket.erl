@@ -184,16 +184,16 @@ get_body(#connection{socket=Socket} = Connection, Request) ->
 	    exit(normal)
     end.
 
-handle_get(Connection, #request{host=Host} = Request) ->
+handle_get(Connection, #request{host=Host, connection=ConnState} = Request) ->
     case Request#request.uri of
 	{abs_path, FullPath} ->
 	    {Path, Args} = ew_util:split_string(FullPath, $?),
-	    call_mfa(Host,  Path, Args, Connection, Request);
-%	    ConnState;
+	    call_mfa(Host,  Path, Args, Connection, Request),
+	    ConnState;
 	{absoluteURI, http, _Host, _, FullPath} ->
 	    {Path, Args} = ew_util:split_string(FullPath, $?),
-	    call_mfa(Host,  Path, Args, Connection, Request);
-%	    ConnState;
+	    call_mfa(Host,  Path, Args, Connection, Request),
+	    ConnState;
 	{absoluteURI, _Other_method, _Host, _, FullPath} ->
 	    io:fwrite("Other method: ~p~n", [_Other_method]),
 	    %% todo implement other methods
