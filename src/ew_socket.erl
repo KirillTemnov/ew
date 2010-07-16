@@ -217,12 +217,11 @@ call_mfa(Host0, Path, Args, #connection{socket=Socket}=Connection, Request) ->
 %%    io:fwrite("Get list of routes: ~p~n", [ListRoutes]),
     case ListRoutes of				% add case for 1+ web routes
 	[] ->
-	    io:fwrite("Close connection : not found", [ ]),
+%%	    io:fwrite("Close connection : not found", [ ]),
 	    ok = send_to_socket(Socket, ?NOT_FOUND),
 	    ok = gen_tcp:close(Socket);
 	[{_, WebRoute}] ->
-	    io:fwrite("update-route (Socket = ~p)~n", [Socket]),
-	    ok = ew_mgr:request_to_route(WebRoute),
+%%	    io:fwrite("update-route (Socket = ~p)~n", [Socket]),
 	    get_proxy_page(WebRoute, Path, Args, Connection, Request);
 	_ ->
 	    io:fwrite("Error in call mfa!", [ ])
@@ -247,6 +246,7 @@ call_mfa(Host0, Path, Args, #connection{socket=Socket}=Connection, Request) ->
 %     send(Connection, Resp).
 
 get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, Args, #connection{socket=ClientSocket}, Request) ->
+    ok = ew_mgr:request_to_route(WebRoute),
     case gen_tcp:connect(PHost, PPort, [binary, {packet, raw}]) of
 	{ok, Socket} ->
 	    {Maj, Min} = Request#request.vsn,
@@ -261,26 +261,21 @@ get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, 
 						       Uri, Maj, Min])),
 	    Data = [First_line, enc_headers(Request#request.headers), <<"\r\n">>,
 		    Request#request.body],
-%%	    io:fwrite("Send to socket~n~p~n", [Data]),
-%%	    dump_to_file("log_send_to_socket", Data),
 	    inet:setopts(Socket, [{packet, http}, {active, false}]),
 	    send_to_socket(Socket, Data),
-%%	    io:fwrite("Before getting request~n", [ ]),
 	    case get_proxy_request(Socket, Data) of
 		{error, timeout} ->
 		    io:fwrite("Close proxy request by timeout~n", [ ]),
 		    gen_tcp:close(Socket),
 		    gen_tcp:close(ClientSocket),
-		    error;
+		    {error, timeout};
 		ReturnedData ->
-		    %%	    io:fwrite("After getting request~n", [ ]),
-		    %%	    dump_to_file("log_get_from_socket", ReturnedData),
-		    %%	    io:fwrite("Get data: ~n~p~n", [ReturnedData]),
 		    inet:setopts(ClientSocket, [{packet, raw}, {active, false}]),
-		    send_to_socket(ClientSocket, ReturnedData)
+		    send_to_socket(ClientSocket, ReturnedData),
+		    ok
 	    end;
-	{error, _} ->
-	    error
+	{error, Error} ->
+	    {error, Error}
     end.
 
 get_proxy_request(Socket, BinaryList) ->
