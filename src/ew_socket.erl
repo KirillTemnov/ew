@@ -99,11 +99,9 @@ get_request(Connection, Request) ->
 	    get_request(Connection, Request);
 	{error, closed} ->
 	    close;
-%	    handle(lists:reverse(BinaryList), Connection, Port);
 	{error, timeout} ->
 	    io:fwrite("Close request by timeout~n", [ ]),
 	    close
-%	    handle(lists:reverse(BinaryList), Connection, Port)
     end.
 
 get_headers(Connection, Request, HdrList) ->
@@ -138,31 +136,35 @@ get_headers(Connection, Request, HdrList) ->
 	    exit(normal)
     end.
 
-%% copy
-%% Shall we keep the connection alive? 
-%% Default case for HTTP/1.1 is yes, default for HTTP/1.0 is no.
-%% Exercise for the reader - finish this so it does case insensitivity properly !
+%% Return keep alive status, that can be override by header value,
+%% default for HTTP/1.1 - keep_alive, default for HTTP/1.0 - close.
 keep_alive({1,1}, "close")      -> close;
 keep_alive({1,1}, "Close")      -> close;
 keep_alive({1,1}, _)            -> keep_alive;
 keep_alive({1,0}, "Keep-Alive") -> keep_alive;
-keep_alive({1,0}, _)            -> close;
-keep_alive({0,9}, _)            -> close;
-keep_alive(_, _)                -> close. %% unknown values
-
+keep_alive(_, _)                -> close.
 
 %% get request body
+
+proceed_get_body_non_post_request(#connection{socket=Socket} = Connection, Request) ->
+    case handle_get(Connection, Request) of
+	close ->
+	    gen_tcp:close(Socket);
+	keep_alive ->
+	    inet:setopts(Socket, [{packet, http}]),
+	    get_request(Connection, #request{})
+    end.
 
 get_body(#connection{socket=Socket} = Connection, Request) ->
     case Request#request.method of
 	'GET' ->
-	    case handle_get(Connection, Request) of
-		close ->
-		    gen_tcp:close(Socket);
-		keep_alive ->
-		    inet:setopts(Socket, [{packet, http}]),
-		    get_request(Connection, #request{})
-	    end;
+	    proceed_get_body_non_post_request(Connection, Request);
+	'HEAD' ->
+	    proceed_get_body_non_post_request(Connection, Request);
+	'PUT' ->
+	    proceed_get_body_non_post_request(Connection, Request);
+	'DELETE' ->
+	    proceed_get_body_non_post_request(Connection, Request);
 	'POST' when is_integer(Request#request.content_length) ->
 	    inet:setopts(Socket, [{packet, raw}]),
 	    case gen_tcp:recv(Socket, Request#request.content_length, ?MAX_POST_TIMEOUT) of
@@ -182,17 +184,18 @@ get_body(#connection{socket=Socket} = Connection, Request) ->
 	    exit(normal)
     end.
 
-handle_get(Connection, #request{connection=ConnState, host=Host} = Request) ->
+handle_get(Connection, #request{host=Host} = Request) ->
     case Request#request.uri of
 	{abs_path, FullPath} ->
 	    {Path, Args} = ew_util:split_string(FullPath, $?),
-	    call_mfa(Host,  Path, Args, Connection, Request),
-	    ConnState;
+	    call_mfa(Host,  Path, Args, Connection, Request);
+%	    ConnState;
 	{absoluteURI, http, _Host, _, FullPath} ->
 	    {Path, Args} = ew_util:split_string(FullPath, $?),
-	    call_mfa(Host,  Path, Args, Connection, Request),
-	    ConnState;
+	    call_mfa(Host,  Path, Args, Connection, Request);
+%	    ConnState;
 	{absoluteURI, _Other_method, _Host, _, FullPath} ->
+	    io:fwrite("Other method: ~p~n", [_Other_method]),
 	    %% todo implement other methods
 	    send(Connection, ?NOT_IMPLEMENTED),
 	    close;
@@ -219,7 +222,8 @@ call_mfa(Host0, Path, Args, #connection{socket=Socket}=Connection, Request) ->
 	[] ->
 %%	    io:fwrite("Close connection : not found", [ ]),
 	    ok = send_to_socket(Socket, ?NOT_FOUND),
-	    ok = gen_tcp:close(Socket);
+	    ok = gen_tcp:close(Socket),
+	    close;
 	[{_, WebRoute}] ->
 %%	    io:fwrite("update-route (Socket = ~p)~n", [Socket]),
 	    get_proxy_page(WebRoute, Path, Args, Connection, Request);
@@ -314,9 +318,6 @@ add_content_length(Headers, Body) ->
             [{'Content-Length', size(Body)}|Headers]
     end.
 
-
-
-
 %% send data to the socket
 send(#connection{socket=Socket}, Data) ->
     send_to_socket(Socket, Data).
@@ -332,10 +333,3 @@ dump_to_file(Filename, Data) ->
     file:write(Fd, Data),
     file:close(Fd).
 
-handle(Binary, Connection, Port) ->
-    {ok, Fd} = file:open("log_file_"++integer_to_list(Port), [append]),
-    file:write(Fd, io_lib:format("Connection:  ~p:~p~n",
-				 [Connection#connection.peer_addr,
-				  Connection#connection.peer_port])),
-    file:write(Fd, Binary),
-    file:close(Fd).
