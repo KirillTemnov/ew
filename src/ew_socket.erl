@@ -40,7 +40,6 @@
 %%--------------------------------------------------------------------
 %% Records
 %%--------------------------------------------------------------------
--record(connection, {socket, port, peer_addr, peer_port}).
 
 -record(request, {connection=keep_alive,	        % keep_alive | close
 		  content_length,                       % Integer
@@ -70,9 +69,8 @@ init({LPid, LSocket, LPort}) ->
 	    ew_server:create(LPid, self()),
 	    io:fwrite("After FORK ~p~n", [Socket]),
 	    {ok, {Addr, Port}} = inet:peername(Socket),
-	    Con = #connection{socket=Socket, port=LPort, peer_addr=Addr, peer_port=Port},
 	    io:fwrite("Get new request~n", [ ]),
-	    get_request(Con, #request{}); %% Jump to state 'request'
+	    get_request(Socket, #request{}); %% Jump to state 'request'
 	Error ->
 	    io:fwrite("Exit on error XX ~p~n", [Error]),
 %%	    exit({error, accept_failed})
@@ -84,19 +82,18 @@ init({LPid, LSocket, LPort}) ->
 %% Internal functions
 %%====================================================================
 
-get_request(Connection, Request) ->
-    case gen_tcp:recv(Connection#connection.socket, 0, ?MAX_IDLE_TIMEOUT) of
-%%	{ok, Binary} -> get_request(Connection, [Binary|BinaryList]);
+get_request(Socket, Request) ->
+    case gen_tcp:recv(Socket, 0, ?MAX_IDLE_TIMEOUT) of
 
 	{ok, {http_request, Method, Path, Version}} ->
-	    get_headers(Connection, Request#request{vsn = Version,
+	    get_headers(Socket, Request#request{vsn = Version,
 						method = Method,
 						uri = Path}, []);
 
 	{error, {http_error, "\r\r"}} ->
-	    get_request(Connection, Request);
+	    get_request(Socket, Request);
 	{error, {http_error, "\n"}} ->
-	    get_request(Connection, Request);
+	    get_request(Socket, Request);
 	{error, closed} ->
 	    close;
 	{error, timeout} ->
@@ -104,33 +101,33 @@ get_request(Connection, Request) ->
 	    close
     end.
 
-get_headers(Connection, Request, HdrList) ->
-    case gen_tcp:recv(Connection#connection.socket, 0, ?MAX_IDLE_TIMEOUT) of
+get_headers(Socket, Request, HdrList) ->
+    case gen_tcp:recv(Socket, 0, ?MAX_IDLE_TIMEOUT) of
 
 	{ok, {http_header, _, 'Host', _, Host}} ->
-	    get_headers(Connection, Request#request{host = Host}, [{'Host', Host} | HdrList]);
+	    get_headers(Socket, Request#request{host = Host}, [{'Host', Host} | HdrList]);
 
 	{ok, {http_header, _, 'Content-Length', _, CLen}} ->
 	    Len = list_to_integer(CLen),
-	    get_headers(Connection, Request#request{content_length = Len},
+	    get_headers(Socket, Request#request{content_length = Len},
 			[{'Content-Length', Len} | HdrList]);
 
 	{ok, {http_header, _, 'Connection', _, Conn}} ->
 	    KeepAlive = keep_alive(Request#request.vsn, Conn),
-	    get_headers(Connection, Request#request{connection = KeepAlive},
+	    get_headers(Socket, Request#request{connection = KeepAlive},
 			[{'Connection', Conn} | HdrList]);
 
 	{ok, {http_header, _, Header, _, Val}} ->
-	    get_headers(Connection, Request, [{Header, Val} | HdrList]);
+	    get_headers(Socket, Request, [{Header, Val} | HdrList]);
 
 	{error, {http_error, "\r\n" }} ->
-	    get_headers(Connection, Request, HdrList);
+	    get_headers(Socket, Request, HdrList);
 
 	{error, {http_error, "\r" }} ->
-	    get_headers(Connection, Request, HdrList);
+	    get_headers(Socket, Request, HdrList);
 
 	{ok, http_eoh} ->
-	    get_body(Connection, Request#request{headers = lists:reverse(HdrList)});
+	    get_body(Socket, Request#request{headers = lists:reverse(HdrList)});
 
 	_Other ->
 	    exit(normal)
@@ -146,110 +143,88 @@ keep_alive(_, _)                -> close.
 
 %% get request body
 
-proceed_get_body_non_post_request(#connection{socket=Socket} = Connection, Request) ->
-    case handle_get(Connection, Request) of
+proceed_get_body_non_post_request(Socket, Request) ->
+    case handle_get(Socket, Request) of
 	close ->
 	    gen_tcp:close(Socket);
 	keep_alive ->
 	    inet:setopts(Socket, [{packet, http}]),
-	    get_request(Connection, #request{})
+	    get_request(Socket, #request{})
     end.
 
-get_body(#connection{socket=Socket} = Connection, Request) ->
+get_body(Socket, Request) ->
     case Request#request.method of
 	'GET' ->
-	    proceed_get_body_non_post_request(Connection, Request);
+	    proceed_get_body_non_post_request(Socket, Request);
 	'HEAD' ->
-	    proceed_get_body_non_post_request(Connection, Request);
+	    proceed_get_body_non_post_request(Socket, Request);
 	'PUT' ->
-	    proceed_get_body_non_post_request(Connection, Request);
+	    proceed_get_body_non_post_request(Socket, Request);
 	'DELETE' ->
-	    proceed_get_body_non_post_request(Connection, Request);
+	    proceed_get_body_non_post_request(Socket, Request);
 	'POST' when is_integer(Request#request.content_length) ->
 	    inet:setopts(Socket, [{packet, raw}]),
 	    case gen_tcp:recv(Socket, Request#request.content_length, ?MAX_POST_TIMEOUT) of
 		{ok, Bin} ->
-		    case handle_post(Connection, Request#request{body = Bin}) of
+		    case handle_post(Socket, Request#request{body = Bin}) of
 			close ->
 			    gen_tcp:close(Socket);
 			keep_alive ->
 			    inet:setopts(Socket, [{packet, http}]),
-			    get_request(Connection, #request{})
+			    get_request(Socket, #request{})
 		    end;
 		_Other ->
 		    exit(normal)
 	    end;
 	_Other -> %% todo implement other methods
-	    send(Connection, ?NOT_IMPLEMENTED),
+	    send(Socket, ?NOT_IMPLEMENTED),
 	    exit(normal)
     end.
 
-handle_get(Connection, #request{host=Host, connection=ConnState} = Request) ->
+handle_get(Socket, #request{host=Host, connection=ConnState} = Request) ->
     case Request#request.uri of
 	{abs_path, FullPath} ->
 	    {Path, Args} = ew_util:split_string(FullPath, $?),
-	    call_mfa(Host,  Path, Args, Connection, Request),
+	    call_mfa(Host,  Path, Args, Socket, Request),
 	    ConnState;
 	{absoluteURI, http, _Host, _, FullPath} ->
 	    {Path, Args} = ew_util:split_string(FullPath, $?),
-	    call_mfa(Host,  Path, Args, Connection, Request),
+	    call_mfa(Host,  Path, Args, Socket, Request),
 	    ConnState;
 	{absoluteURI, _Other_method, _Host, _, FullPath} ->
 	    io:fwrite("Other method: ~p~n", [_Other_method]),
 	    %% todo implement other methods
-	    send(Connection, ?NOT_IMPLEMENTED),
+	    send(Socket, ?NOT_IMPLEMENTED),
 	    close;
 	{absoluteURI, _Scheme, _RequestString} ->
-	    send(Connection, ?NOT_IMPLEMENTED),
+	    send(Socket, ?NOT_IMPLEMENTED),
 	    close;
 	_ ->
-	    send(Connection, ?FORBIDDEN),
+	    send(Socket, ?FORBIDDEN),
 	    close
     end.
 
 
-%% implement post
-handle_post(Connection, #request{connection=ConnState, host=Host} = Request) ->
-    send(Connection, ?FORBIDDEN),
+%% todo implement post
+handle_post(Socket, #request{connection=ConnState, host=Host} = Request) ->
+    send(Socket, ?FORBIDDEN),
     close.
 
-call_mfa(Host0, Path, Args, #connection{socket=Socket}=Connection, Request) ->
+call_mfa(Host0, Path, Args, Socket, Request) ->
     {Host, Port} = ew_util:get_host_and_port(Host0),
-%%    io:fwrite("Host = ~p   Port = ~p ~n", [Host, Port]),
     ListRoutes = ew_mgr:list_routes(Host, Port),
-%%    io:fwrite("Get list of routes: ~p~n", [ListRoutes]),
     case ListRoutes of				% add case for 1+ web routes
 	[] ->
-%%	    io:fwrite("Close connection : not found", [ ]),
-	    ok = send_to_socket(Socket, ?NOT_FOUND),
+	    ok = send(Socket, ?NOT_FOUND),
 	    ok = gen_tcp:close(Socket),
 	    close;
 	[{_, WebRoute}] ->
-%%	    io:fwrite("update-route (Socket = ~p)~n", [Socket]),
-	    get_proxy_page(WebRoute, Path, Args, Connection, Request);
+	    get_proxy_page(WebRoute, Path, Args, Socket, Request);
 	_ ->
 	    io:fwrite("Error in call mfa!", [ ])
     end.
-%     Body =  list_to_binary(io_lib:format("<!DOCTYPE html PUBLIC \"-//W3C//DTD HTML 4.01 Transitional//EN\">
-% <html>
-% <head>
-%   <title>ew test page</title>
-% </head>
-% <body>
-%   <h2>Host: ~p </h2>
-%   <h2>Path: ~p </h2>
-%   <h2>Args: ~p </h2>
-% </body>
-% </html>", [Host0, Path, Args])),
-%     Headers = add_content_length([], Body),
-%     Enc_headers = enc_headers(Headers),
-%     Resp = [<<"HTTP/1.1 200 OK\r\n">>,
-% 	    Enc_headers,
-% 	    <<"\r\n">>,
-% 	    Body],
-%     send(Connection, Resp).
 
-get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, Args, #connection{socket=ClientSocket}, Request) ->
+get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, Args, ClientSocket, Request) ->
     ok = ew_mgr:request_to_route(WebRoute),
     case gen_tcp:connect(PHost, PPort, [binary, {packet, raw}]) of
 	{ok, Socket} ->
@@ -266,7 +241,7 @@ get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, 
 	    Data = [First_line, enc_headers(Request#request.headers), <<"\r\n">>,
 		    Request#request.body],
 	    inet:setopts(Socket, [{packet, http}, {active, false}]),
-	    send_to_socket(Socket, Data),
+	    send(Socket, Data),
 	    case get_proxy_request(Socket, Data) of
 		{error, timeout} ->
 		    io:fwrite("Close proxy request by timeout~n", [ ]),
@@ -275,7 +250,7 @@ get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, 
 		    {error, timeout};
 		ReturnedData ->
 		    inet:setopts(ClientSocket, [{packet, raw}, {active, false}]),
-		    send_to_socket(ClientSocket, ReturnedData),
+		    send(ClientSocket, ReturnedData),
 		    ok
 	    end;
 	{error, Error} ->
@@ -319,10 +294,7 @@ add_content_length(Headers, Body) ->
     end.
 
 %% send data to the socket
-send(#connection{socket=Socket}, Data) ->
-    send_to_socket(Socket, Data).
-
-send_to_socket(Socket, Data) ->
+send(Socket, Data) ->
     case gen_tcp:send(Socket, Data) of
 	ok -> ok;
 	_  -> exit(normal)
