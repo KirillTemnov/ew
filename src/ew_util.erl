@@ -1,7 +1,7 @@
 %%%-------------------------------------------------------------------
 %%% File    : ew_util.erl
 %%% Author  : selead <allselead@gmail.com>
-%%% Description : 
+%%% Description : Helpers module for others ew modules.
 %%%
 %%% Created : 12 Jul 2010 by selead <allselead@gmail.com>
 %%%-------------------------------------------------------------------
@@ -15,14 +15,14 @@
 %%--------------------------------------------------------------------
 %% External exports
 %%--------------------------------------------------------------------
--export([
-        ]).
+% -export([
+%         ]).
 
 %%--------------------------------------------------------------------
 %% Internal exports
 %%--------------------------------------------------------------------
--export([
-        ]).
+% -export([
+%         ]).
 
 %%--------------------------------------------------------------------
 %% Macros
@@ -62,10 +62,23 @@ get_host_and_port(HostString) ->
 	   end,
     {Host, Port}.
 
+%%--------------------------------------------------------------------
+%% Function: dump_to_file/2
+%% Description: Dump data to file. This function for debug purposes.
+%%--------------------------------------------------------------------
+dump_to_file(Filename, Data) ->
+    {ok, Fd} = file:open(Filename, [write]),
+    file:write(Fd, Data),
+    file:close(Fd).
+
+
 %%====================================================================
 %% Internal functions
 %%====================================================================
-
+%%--------------------------------------------------------------------
+%% Function: split_string/3
+%% Description: Split string, aux function to split_string/2.
+%%--------------------------------------------------------------------
 split_string([], Acc, Char) ->
     {lists:reverse(Acc), []};
 split_string([Char|String], Acc, Char) ->

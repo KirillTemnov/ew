@@ -1,7 +1,8 @@
 %%%-------------------------------------------------------------------
 %%% File    : ew_server.erl
 %%% Author  : selead <allselead@gmail.com>
-%%% Description : 
+%%% Description : This module is a listening server for accept
+%%%               incoming connections by http protocol.
 %%%
 %%% Created : 12 Jul 2010 by selead <allselead@gmail.com>
 %%%-------------------------------------------------------------------
@@ -10,7 +11,7 @@
 -behaviour(gen_server).
 
 %% default TCP options
--define(TCP_OPTIONS,  {packet, http}, {reuseaddr, true}, {active, false}, {backlog,30}).
+-define(TCP_OPTIONS,  {packet, http}, {reuseaddr, true}, {active, false}, {backlog,50}).
 
 
 %%--------------------------------------------------------------------
@@ -45,16 +46,26 @@ start_link(Port) when is_integer(Port) ->
 %%====================================================================
 
 %% create new acceptor
+%%--------------------------------------------------------------------
+%% Function: create/2
+%% Description: Create new socket for accepting connection.
+%%--------------------------------------------------------------------
 create(ServerPid, Pid) ->
-    io:fwrite("Before create!", [ ]),
     gen_server:cast(ServerPid, {create, Pid}).
 
+%%--------------------------------------------------------------------
+%% Function: stop/1
+%% Description: Stop server, listening incomming socket connection.
+%%--------------------------------------------------------------------
 stop(ServerPid) ->
     io:fwrite("stop here~n", [ ]),
     gen_server:cast(ServerPid, stop).
 
+%%--------------------------------------------------------------------
+%% Function: echo/1
+%% Description: Debug echo function.
+%%--------------------------------------------------------------------
 echo(ServerPid) ->
-    io:fwrite("Echoo..... ~n", [ ]),
     gen_server:call(ServerPid, echo).
 
 %%--------------------------------------------------------------------
@@ -66,7 +77,7 @@ echo(ServerPid) ->
 %%          {stop, Reason}
 %%--------------------------------------------------------------------
 init([Port]) ->
-%%    process_flag(trap_exit, true),
+    process_flag(trap_exit, true),		% this string for supervisor
     io:fwrite("Gen server init~n", [ ]),
     case gen_tcp:listen(Port, [binary, ?TCP_OPTIONS]) of
 	{ok, LSocket} ->
@@ -76,7 +87,7 @@ init([Port]) ->
 		    io:fwrite("message : {error, accept_failed}", [ ]),
 		    {stop, socket_error};
 		Pid ->
-		    io:fwrite("Create accepting process: (~p | ~p)~n", [LSocket, Port]),
+%		    io:fwrite("Create accepting process: (~p | ~p)~n", [LSocket, Port]),
 		    {ok, #state{listen_socket = LSocket, port = Port, acceptor = Pid}}
 	    end;
 	{error, Reason} ->
@@ -98,7 +109,6 @@ handle_call(echo, From,  _State)->
     {reply, ok, _State};
 
 
-
 handle_call(Request, From, State) ->
     io:fwrite("Handle call: ~p~n", [Request]),
     Reply = ok,
@@ -114,7 +124,7 @@ handle_call(Request, From, State) ->
 %% Called by gen_server framework when the cast message from create/2 is received
 handle_cast({create, _Pid}, #state{listen_socket = LSocket} = State) ->
     New_pid = ew_socket:start_link(self(), LSocket, State#state.port),
-    io:fwrite("Create new socket with pid = ~p~n", [New_pid]),
+%%    io:fwrite("Create new socket with pid = ~p~n", [New_pid]),
     {noreply, State#state{acceptor=New_pid}};
 
 handle_cast(stop, State) ->

@@ -1,9 +1,47 @@
 ew - erlang web proxy server.
+=============================
 
-ew pronounced "eve". 
+ew pronounced like "eve". 
 
 This progect inspired by http://www.trapexit.org/A_fast_web_server_demonstrating_some_undocumented_Erlang_features.
 
-Main purpose of ew project - create reverse proxy server with dynamic variable routes and control of the maximum load.   
+Main purpose of ew project - create reverse proxy server with dynamic variable routes and control of the maximum load.
 
-This code relesed under BSD license.
+
+Using
+-----
+
+Launch erlang shell, then type
+
+    make:all().
+    {ok, Pid} = ew_server:start_link(8080).
+    rr(ew_mgr). 
+    ew_mgr:start_link().
+    ew_mgr:add_route(#web_route{host="127.0.0.1", port=8080, proxy_host="127.0.0.1",	proxy_port=2000, domain="test", rps_max=500}).
+
+
+make:all() create binary files, you need to type it just once.
+
+port is a port on wich ew will works, and proxy_port is a port for other web server, that must be launched on your machine. External servers, like google.com still don't work, if you 
+know why, please write me =).
+
+shutting down
+
+   ew_server:stop(Pid).
+   ew_mgr:stop().
+
+   or
+
+   Ctrl-c a
+
+get stat
+
+    ew_mgr:list_routes().
+
+
+
+License and version
+-------------------
+
+This code relesed under GPLv2 license, current version 0.1.
+
