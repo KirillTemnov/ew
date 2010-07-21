@@ -76,12 +76,8 @@ init({LPid, LSocket, LPort}) ->
 	{ok, Socket} ->
 	    ew_server:create(LPid, self()),
 	    ?LOG_INFO("After FORK ~p~n", [Socket]),
-%%	    io:fwrite("After FORK ~p~n", [Socket]),
-%%	    io:fwrite("Get new request~n", [ ]),
 	    get_request(Socket, #request{}); %% Jump to state 'request'
 	Error ->
-%%	    io:fwrite("Exit on error XX ~p~n", [Error]),
-%%	    exit({error, accept_failed})
 	    {error, accept_failed}
     end.
 
@@ -108,7 +104,7 @@ get_request(Socket, Request) ->
 	{error, closed} ->
 	    close;
 	{error, timeout} ->
-	    io:fwrite("Close request by timeout~n", [ ]),
+	    ?LOG_WARNING("Close request by timeout socket = ~p~n", [Socket]),
 	    close
     end.
 
@@ -225,7 +221,7 @@ handle_request(Socket, #request{host=Host, connection=ConnState} = Request) ->
 	    handle_proxy_request(Host,  Path, Args, Socket, Request),
 	    ConnState;
 	{absoluteURI, _Other_method, _Host, _, FullPath} ->
-	    io:fwrite("Other method: ~p~n", [_Other_method]),
+	    ?LOG_WARNING("Other method \"~p\" inside handle_request.", [_Other_method]),
 	    send(Socket, ?NOT_IMPLEMENTED),
 	    close;
 	{absoluteURI, _Scheme, _RequestString} ->
@@ -252,7 +248,7 @@ handle_proxy_request(Host0, Path, Args, Socket, Request) ->
 	[{_, WebRoute}] ->
 	    get_proxy_page(WebRoute, Path, Args, Socket, Request);
 	_ ->
-	    io:fwrite("Error in call get_proxy_page!", [ ])
+	    ?LOG_ERROR("Can't call proxy page for ~p:~p~n", [Host, Port])
     end.
 
 %%--------------------------------------------------------------------
@@ -279,7 +275,7 @@ get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, 
 	    send(Socket, Data),
 	    case read_binary_data_from_socket(Socket, []) of
 		{error, timeout} ->
-		    io:fwrite("Close proxy request by timeout~n", [ ]),
+		    ?LOG_WARNING("Close proxy request to host ~p by timeout", [PHost]),
 		    gen_tcp:close(Socket),
 		    gen_tcp:close(ClientSocket),
 		    {error, timeout};
