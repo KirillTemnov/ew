@@ -7,6 +7,7 @@
 %%% Created : 12 Jul 2010 by selead <allselead@gmail.com>
 %%%-------------------------------------------------------------------
 -module(ew_server).
+-vsn("0.1.5").
 
 -behaviour(gen_server).
 
