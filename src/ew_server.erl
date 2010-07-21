@@ -10,6 +10,8 @@
 
 -behaviour(gen_server).
 
+-include ("util.hrl").
+
 %% default TCP options
 -define(TCP_OPTIONS,  {packet, http}, {reuseaddr, true}, {active, false}, {backlog,50}).
 
@@ -38,7 +40,7 @@
 %%--------------------------------------------------------------------
 start_link(Port) when is_integer(Port) ->
     Name = list_to_atom(lists:flatten(io_lib:format("ew_~p", [Port]))),
-    io:fwrite("GS start link~n", [ ]),
+    ?LOG_INFO("GS start link ~n", []),
     gen_server:start_link({local, Name}, ?MODULE, [Port], []).
 
 %%====================================================================
@@ -58,7 +60,7 @@ create(ServerPid, Pid) ->
 %% Description: Stop server, listening incomming socket connection.
 %%--------------------------------------------------------------------
 stop(ServerPid) ->
-    io:fwrite("stop here~n", [ ]),
+    ?LOG_INFO("Stop server with pid = ~p~n", [ServerPid]),
     gen_server:cast(ServerPid, stop).
 
 %%--------------------------------------------------------------------
@@ -78,16 +80,17 @@ echo(ServerPid) ->
 %%--------------------------------------------------------------------
 init([Port]) ->
     process_flag(trap_exit, true),		% this string for supervisor
-    io:fwrite("Gen server init~n", [ ]),
+    ?LOG_INFO("Init new http server on port ~p~n", [Port]),
     case gen_tcp:listen(Port, [binary, ?TCP_OPTIONS]) of
 	{ok, LSocket} ->
 	    %% create accepting process
 	    case ew_socket:start_link(self(), LSocket, Port) of
 		{error, accept_failed} ->
-		    io:fwrite("message : {error, accept_failed}", [ ]),
+		    ?LOG_ERROR("Error opening accept socket on port ~p~n", [Port]),
 		    {stop, socket_error};
 		Pid ->
-%		    io:fwrite("Create accepting process: (~p | ~p)~n", [LSocket, Port]),
+		    ?LOG_INFO("Create acceptiong process. Socket = ~p, port = ~p~n",
+			      [LSocket, Port]),
 		    {ok, #state{listen_socket = LSocket, port = Port, acceptor = Pid}}
 	    end;
 	{error, Reason} ->
@@ -105,12 +108,11 @@ init([Port]) ->
 %%          {stop, Reason, State}            (terminate/2 is called)
 %%--------------------------------------------------------------------
 handle_call(echo, From,  _State)->
-    io:fwrite("Echo...", [ ]),
+    ?LOG_INFO("Echo function call.", [ ]),
     {reply, ok, _State};
 
 
 handle_call(Request, From, State) ->
-    io:fwrite("Handle call: ~p~n", [Request]),
     Reply = ok,
     {reply, Reply, State}.
 
@@ -123,16 +125,15 @@ handle_call(Request, From, State) ->
 %%--------------------------------------------------------------------
 %% Called by gen_server framework when the cast message from create/2 is received
 handle_cast({create, _Pid}, #state{listen_socket = LSocket} = State) ->
-    New_pid = ew_socket:start_link(self(), LSocket, State#state.port),
-%%    io:fwrite("Create new socket with pid = ~p~n", [New_pid]),
-    {noreply, State#state{acceptor=New_pid}};
+    NewPid = ew_socket:start_link(self(), LSocket, State#state.port),
+    ?LOG_INFO("Create new socket with pid = ~p~n", [NewPid]),
+    {noreply, State#state{acceptor=NewPid}};
 
 handle_cast(stop, State) ->
-    io:fwrite("terminate in hangle cast ...~n", [ ]),
+    ?LOG_INFO("Terminate server ...~n", [ ]),
     {stop, normal, State};
 
 handle_cast(Msg, State) ->
-    io:fwrite("Get message: ~p~n", [Msg]),
     {noreply, State}.
 
 %%--------------------------------------------------------------------

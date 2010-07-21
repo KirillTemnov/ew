@@ -12,6 +12,8 @@
 %% Include files
 %%--------------------------------------------------------------------
 -include ("ew_mgr.hrl").
+-include ("util.hrl").
+
 %%--------------------------------------------------------------------
 %% External exports
 %%--------------------------------------------------------------------
@@ -73,6 +75,7 @@ init({LPid, LSocket, LPort}) ->
     case catch gen_tcp:accept(LSocket) of
 	{ok, Socket} ->
 	    ew_server:create(LPid, self()),
+	    ?LOG_INFO("After FORK ~p~n", [Socket]),
 %%	    io:fwrite("After FORK ~p~n", [Socket]),
 %%	    io:fwrite("Get new request~n", [ ]),
 	    get_request(Socket, #request{}); %% Jump to state 'request'
