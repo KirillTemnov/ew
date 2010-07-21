@@ -1,0 +1,11 @@
+
+* TODO When getting redirect at same domain change this domain to source
+    | client ->   | localhost:8080 ->                  | example.com                     |
+    | client go   | <- redirect to localhost:8080/page | <- redirect to example.com/page |
+    | to redirect |                                    |                                 |
+* TODO Pass keep alive header from proxy server to client
+* TODO Create simpe web-server (with static) for testing
+* TODO Implement websockets
+* TODO Add supervisors
+* TODO Make application from code
+* TODO Handle multiple proxies on a single host (domain)
