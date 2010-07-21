@@ -13,6 +13,7 @@
 %% Include files
 %%--------------------------------------------------------------------
 -include ("ew_mgr.hrl").
+-include ("util.hrl").
 %%--------------------------------------------------------------------
 %% External exports
 -compile(export_all).
@@ -31,6 +32,7 @@
 %% Description: Starts the server
 %%--------------------------------------------------------------------
 start_link() ->
+    ?LOG_INFO("Start ew manager.~n", [ ]),
     gen_server:start_link({global, ?MODULE}, ?MODULE, [], []).
 
 %%====================================================================
@@ -42,6 +44,7 @@ start_link() ->
 %% Description: Shutdown server.
 %%--------------------------------------------------------------------
 stop() ->
+    ?LOG_INFO("Stop ew manager.~n", [ ]),
     gen_server:cast({global, ?MODULE}, stop).
 
 %%--------------------------------------------------------------------
@@ -174,7 +177,6 @@ handle_call(Request, From, State) ->
 
 
 handle_cast(stop, State) ->
-    io:fwrite("Terminate ~p ..... ok~n", [?MODULE]),
     {stop, normal, State};
 
 handle_cast(Msg, State) ->
