@@ -22,8 +22,12 @@ Launch erlang shell, then type
 
 make:all() create binary files, you need to type it just once.
 
-port is a port on wich ew will works, and proxy_port is a port for other web server, that must be launched on your machine. External servers, like google.com still don't work, if you 
-know why, please write me =).
+
+You can use 
+
+    make:all([{d, debug}]).
+
+to see debug messages.
 
 shutting down
 
@@ -43,5 +47,11 @@ get stat
 License and version
 -------------------
 
-This code relesed under GPLv2 license, current version 0.1.
+This code relesed under GPLv2 license, current version 0.1.5
+
+
+Known Bugs
+----------
+
+Keep alive connections not work for now, so, resiult for them returns after socket timeout.
 
