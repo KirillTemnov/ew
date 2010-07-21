@@ -269,17 +269,23 @@ get_proxy_page(#web_route{proxy_host=PHost, proxy_port=PPort} = WebRoute, Path, 
 	    First_line = list_to_binary(io_lib:format("~s ~s HTTP/~p.~p\r\n",
 						      [Request#request.method,
 						       Uri, Maj, Min])),
-	    Data = [First_line, enc_headers(Request#request.headers), <<"\r\n">>,
+	    Headers = add_or_replace_header(
+	    		{'Host', ew_util:get_host_string(PHost, PPort) },
+	    		Request#request.headers),
+	    Data = [First_line, enc_headers(Headers), <<"\r\n">>,
 		    Request#request.body],
 	    inet:setopts(Socket, [{packet, http}, {active, false}]),
+	    ?LOG_DEBUG("Send to ~p:~p data:~n~p~n", [PHost, PPort, Data]),
 	    send(Socket, Data),
 	    case read_binary_data_from_socket(Socket, []) of
 		{error, timeout} ->
 		    ?LOG_WARNING("Close proxy request to host ~p by timeout", [PHost]),
+		    send(ClientSocket, ?NOT_FOUND),
 		    gen_tcp:close(Socket),
 		    gen_tcp:close(ClientSocket),
 		    {error, timeout};
 		ReturnedData ->
+		    ?LOG_DEBUG("Get from ~p:~p data:~n~p~n", [PHost, PPort, ReturnedData]),
 		    inet:setopts(ClientSocket, [{packet, raw}, {active, false}]),
 		    send(ClientSocket, ReturnedData),
 		    ok
@@ -300,7 +306,8 @@ read_binary_data_from_socket(Socket, BinaryList) ->
 	{error, closed} ->
 	    lists:reverse(BinaryList);
 	{error, timeout} ->
-	    {error, timeout}
+	    lists:reverse(BinaryList)		% todo check keep alive and replace this code
+%%	    {error, timeout}
     end.
 
 %%--------------------------------------------------------------------
@@ -337,6 +344,15 @@ add_content_length(Headers, Body) ->
     end.
 
 %%--------------------------------------------------------------------
+%% Function: add_or_replace_header/2
+%% Description: Add or replace header to headers list.
+%%--------------------------------------------------------------------
+add_or_replace_header({Tag, Val}, Headers) ->
+    lists:keystore(Tag, 1, Headers, {Tag, Val});
+add_or_replace_header(_, Headers) -> Headers.
+
+
+%%--------------------------------------------------------------------
 %% Function: send/2
 %% Description: Send data to socket
 %%--------------------------------------------------------------------
@@ -345,4 +361,5 @@ send(Socket, Data) ->
 	ok -> ok;
 	_  -> exit(normal)
     end.
+
 

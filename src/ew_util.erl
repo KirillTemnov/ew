@@ -63,6 +63,16 @@ get_host_and_port(HostString) ->
     {Host, Port}.
 
 %%--------------------------------------------------------------------
+%% Function: get_host_string/2
+%% Description: if port is 80 return Host, othewise return "Host:Port"
+%%--------------------------------------------------------------------
+get_host_string(Host, Port)  when is_integer(Port) ->
+    case Port of
+	 80 -> Host;
+	 _ -> Host ++ ":" ++ Port
+    end.
+
+%%--------------------------------------------------------------------
 %% Function: dump_to_file/2
 %% Description: Dump data to file. This function for debug purposes.
 %%--------------------------------------------------------------------
